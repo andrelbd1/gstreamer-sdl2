@@ -79,14 +79,12 @@ static bool texture(){
     // audio_sink = gst_element_factory_make ("appsink", "audio_sink");
     // g_assert_nonnull (audio_sink); //Verifica se a chamada anterior funcionou corretamente.    
 
-    // g_object_set (G_OBJECT (playbin), "audio-sink", audio_sink, NULL);
-    caps = gst_caps_from_string ("video/x-raw,format=YUV,pixel-aspect-ratio=1/1");
-    gst_app_sink_set_caps (video_sink, caps);
-    gst_object_unref (caps);
+    // caps = gst_caps_from_string ("video/x-raw,format=YUV,pixel-aspect-ratio=1/1");
+    // gst_app_sink_set_caps (video_sink, caps);
+    // gst_object_unref (caps);
     
-    g_object_set (G_OBJECT (playbin), 
-                  "video-sink", video_sink, 
-                  NULL);
+    // g_object_set (G_OBJECT (playbin), "audio-sink", audio_sink, NULL);
+    g_object_set (G_OBJECT (playbin), "video-sink", video_sink, NULL);
 
     ret = gst_element_set_state (playbin, GST_STATE_PLAYING); //Inicia a pipeline da aplicação.
     g_assert (ret != GST_STATE_CHANGE_FAILURE); //Verifica se requisição foi bem sucedida.
