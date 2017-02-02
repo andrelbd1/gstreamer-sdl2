@@ -95,7 +95,7 @@ create_pipeline (int argc, char **argv)
   g_assert_nonnull (filter);
 
   st = gst_structure_new_empty ("video/x-raw");
-  gst_structure_set (st, "format", G_TYPE_STRING, "ARGB",
+  gst_structure_set (st, "format", G_TYPE_STRING, "RGB",
                      "width", G_TYPE_INT, width,
                      "height", G_TYPE_INT, height, NULL);
 
@@ -145,10 +145,12 @@ int main (int argc, char **argv)
   gst_init (&argc, &argv);
   g_assert (SDL_Init (0) == 0);
 
+  SDL_SetHint(SDL_HINT_RENDER_DRIVER,"software");
+
   g_assert (SDL_CreateWindowAndRenderer
             (width, height, SDL_WINDOW_SHOWN, &window, &renderer) == 0);
 
-  texture = SDL_CreateTexture (renderer, SDL_PIXELFORMAT_ARGB32,
+  texture = SDL_CreateTexture (renderer, SDL_PIXELFORMAT_RGB24,
                                SDL_TEXTUREACCESS_STATIC, width, height);
   g_assert_nonnull (texture);
 
