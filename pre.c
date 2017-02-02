@@ -1,8 +1,77 @@
+#include <SDL2/SDL.h>
 #include <glib.h>
 #include <gst/gst.h>
+#include <gst/app/gstappsink.h>
+#include <gst/video/video.h>
 
-int main (int argc, char *argv[]){
-  GstElement *playbin; //Pipeline da aplicação
+static const int width = 800;
+static const int height = 600;
+
+static SDL_Window *window;
+static SDL_Renderer *renderer;
+static SDL_Texture *texture;
+
+static void
+eos_cb (GstAppSink *appsink, gpointer data)
+{
+  g_print ("eos\n");
+}
+
+static GstFlowReturn
+new_preroll_cb (GstAppSink *appsink, gpointer data)
+{
+  return GST_FLOW_OK;
+}
+
+static GstFlowReturn
+new_sample_cb (GstAppSink *appsink, gpointer data)
+{
+  GstSample* sample;
+  GstVideoFrame v_frame;
+  GstVideoInfo v_info;
+  GstBuffer *buf;
+  GstCaps *caps;
+  guint8 *pixels;
+  guint stride;
+
+  sample = gst_app_sink_pull_sample (appsink);
+  g_assert_nonnull (sample);
+
+  buf = gst_sample_get_buffer (sample);
+  g_assert_nonnull (buf);
+
+  caps = gst_sample_get_caps (sample);
+  g_assert_nonnull (caps);
+
+  g_assert (gst_video_info_from_caps (&v_info, caps));
+  g_assert (gst_video_frame_map (&v_frame, &v_info, buf, GST_MAP_READ));
+
+  pixels = (guint8 *) GST_VIDEO_FRAME_PLANE_DATA (&v_frame, 0);
+  stride = GST_VIDEO_FRAME_PLANE_STRIDE (&v_frame, 0);
+  g_assert (SDL_UpdateTexture(texture, NULL, pixels, stride) == 0);
+  SDL_RenderCopy (renderer, texture, NULL, NULL);
+  SDL_RenderPresent (renderer);
+
+  gst_video_frame_unmap (&v_frame);
+  gst_sample_unref (sample);
+
+  return GST_FLOW_OK;
+}
+
+void
+create_pipeline (int argc, char **argv)
+{
+  GstElement *playbin;
+  GstElement *bin;
+  GstElement *filter;
+  GstElement *scale;
+  GstElement *sink;
+
+  GstAppSinkCallbacks callbacks;
+  GstPad *pad;
+  GstCaps *caps;
+  GstStructure *st = NULL;
+
   char *uri;
   GstStateChangeReturn ret;
   GstBus *bus;
@@ -10,53 +79,83 @@ int main (int argc, char *argv[]){
 
   gst_init (&argc, &argv);
 
-  playbin = gst_element_factory_make ("playbin", "hello"); //Cria a pipeline. 1º param é o nome da fábrica do tipo. 2º param (opcional) é o nome a ser atribuído ao elemento retorno.
-  g_assert_nonnull (playbin); //Verifica se a chamada anterior funcionou corretamente.
+  playbin = gst_element_factory_make ("playbin", NULL);
+  g_assert_nonnull (playbin);
 
-  uri = gst_filename_to_uri ("bunny.ogg", NULL); //Constrói a URI.
-  g_assert_nonnull (uri); //Verifica se a chamada anterior funcionou corretamente.
-  g_object_set (G_OBJECT (playbin), "uri", uri, NULL); //Atribui a URI à propriedade uri do elemento playbin.
-  g_free (uri); ///Libera a string alocada.
-  
+  uri = gst_filename_to_uri ("bunny.ogg", NULL);
+  g_assert_nonnull (uri);
 
-  GstElement *binVideo = gst_bin_new("binVideo");
-  g_assert_nonnull (binVideo);  
+  g_object_set (G_OBJECT (playbin), "uri", uri, NULL);
+  g_free (uri);
 
-  GstElement *caps_filter = gst_element_factory_make ("capsfilter", "caps_filter");
-  g_assert_nonnull (caps_filter);
-  gst_bin_add(GST_BIN(binVideo), caps_filter);
+  bin = gst_bin_new (NULL);
+  g_assert_nonnull (bin);
 
-  GstCaps *caps = gst_caps_from_string ("video/x-raw,format=YUV,pixel-aspect-ratio=1/1");
+  filter = gst_element_factory_make ("capsfilter", NULL);
+  g_assert_nonnull (filter);
+
+  st = gst_structure_new_empty ("video/x-raw");
+  gst_structure_set (st, "format", G_TYPE_STRING, "ARGB",
+                     "width", G_TYPE_INT, width,
+                     "height", G_TYPE_INT, height, NULL);
+
+  caps = gst_caps_new_full (st, NULL);
   g_assert_nonnull (caps);
-  g_object_set(caps_filter, "caps", caps, NULL);
 
-  GstElement *video_convert = gst_element_factory_make ("videoconvert", "video_convert");
-  g_assert_nonnull (video_convert);
-  gst_bin_add(GST_BIN(binVideo), video_convert);    
+  g_object_set (filter, "caps", caps, NULL);
+  gst_caps_unref (caps);
 
-  GstElement *app_sink_video = gst_element_factory_make ("autovideosink", "app_sink_video"); 
-  g_assert_nonnull (app_sink_video);
-  gst_bin_add(GST_BIN(binVideo), app_sink_video);
+  scale = gst_element_factory_make ("videoscale", NULL);
+  g_assert_nonnull (scale);
 
-  gst_element_link_many (caps_filter, video_convert, app_sink_video, NULL); //Conecta os elementos em série.
+  sink = gst_element_factory_make ("appsink", NULL);
+  g_assert_nonnull (sink);
 
-  GstPad *pad = gst_element_get_static_pad(caps_filter, "sink");
-  gst_element_add_pad(binVideo, gst_ghost_pad_new ("sink", pad));
+  g_assert (gst_bin_add (GST_BIN (bin), filter));
+  g_assert (gst_bin_add (GST_BIN (bin), sink));
+  g_assert (gst_bin_add (GST_BIN (bin), scale));
 
+  g_assert (gst_element_link (filter, scale));
+  g_assert (gst_element_link (scale, sink));
 
-  g_object_set (G_OBJECT (playbin), "video-sink", binVideo, NULL);
+  pad = gst_element_get_static_pad (filter, "sink");
+  gst_element_add_pad (bin, gst_ghost_pad_new ("sink", pad));
 
-  ret = gst_element_set_state (playbin, GST_STATE_PLAYING); //Inicia a pipeline da aplicação.
-  g_assert (ret != GST_STATE_CHANGE_FAILURE); //Verifica se requisição foi bem sucedida.
+  g_object_set (G_OBJECT (playbin), "video-sink", bin, NULL);
 
-  bus = gst_element_get_bus (playbin); //Referência para o barramento de mensagens (bus) do pipeline.
-  msg = gst_bus_timed_pop_filtered (bus, GST_CLOCK_TIME_NONE, GST_MESSAGE_ERROR | GST_MESSAGE_EOS); //Bloqueia a thread da aplicação caso uma mensagem de erro ou de EOS (end-of-stream) seja postada no barramento.
+  ret = gst_element_set_state (playbin, GST_STATE_PLAYING);
+  g_assert (ret != GST_STATE_CHANGE_FAILURE);
 
-  gst_message_unref (msg); //Libera a mensagem retornada na linha anterior.
-  gst_object_unref (bus); //Libera a referência para o barramento de mensagens (bus).
-  gst_element_set_state (playbin, GST_STATE_NULL); //Para o pipeline da aplicação e libera os recursos.
-  gst_object_unref (playbin); //Libera o elemento playbin.
+  callbacks.eos = eos_cb;
+  callbacks.new_preroll = new_preroll_cb;
+  callbacks.new_sample = new_sample_cb;
+  gst_app_sink_set_callbacks (GST_APP_SINK (sink), &callbacks, NULL, NULL);
 
-  return 0;
+  bus = gst_element_get_bus (playbin);
+  msg = gst_bus_timed_pop_filtered (bus, GST_CLOCK_TIME_NONE,
+                                    GST_MESSAGE_ERROR | GST_MESSAGE_EOS);
+  gst_message_unref (msg);
+  gst_object_unref (bus);
+  gst_element_set_state (playbin, GST_STATE_NULL);
+  gst_object_unref (playbin);
+}
 
+int main (int argc, char **argv)
+{
+  gst_init (&argc, &argv);
+  g_assert (SDL_Init (0) == 0);
+
+  g_assert (SDL_CreateWindowAndRenderer
+            (width, height, SDL_WINDOW_SHOWN, &window, &renderer) == 0);
+
+  texture = SDL_CreateTexture (renderer, SDL_PIXELFORMAT_ARGB32,
+                               SDL_TEXTUREACCESS_STATIC, width, height);
+  g_assert_nonnull (texture);
+
+  create_pipeline (argc, argv);
+
+  SDL_DestroyRenderer(renderer);
+  SDL_DestroyWindow (window);
+  SDL_Quit();
+  exit (EXIT_SUCCESS);
 }
