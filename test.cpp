@@ -9,15 +9,15 @@
 
 static SDL_Renderer* ren;
 static SDL_Texture* tex;
-static GstElement* video_sink;
-// static GstElement* audio_sink;
+static GstElement* app_sink_video;
+// static GstElement* app_sink_audio;
 
 static const int WIDTH = 1280;
 static const int HEIGHT = 720;
 
 
-static GstFlowReturn new_buffer (GstAppSink *video_sink) {
-  GstSample* sample = gst_app_sink_pull_sample (video_sink);
+static GstFlowReturn new_buffer (GstAppSink *app_sink_video) {
+  GstSample* sample = gst_app_sink_pull_sample (app_sink_video);
   if(!sample) {        
     return GST_FLOW_ERROR;
   }
@@ -66,7 +66,9 @@ static bool texture(){
     GstCaps *caps;
     // GstMessage *msg;
 
-    playbin = gst_element_factory_make ("playbin", "hello"); //Cria a pipeline. 1º param é o nome da fábrica do tipo. 2º param (opcional) é o nome a ser atribuído ao elemento retorno.
+    //Como o playbin herda de bin, talvez seja possível criar elementos que scalone
+
+    playbin = gst_element_factory_make ("playbin", "test"); //Cria a pipeline. 1º param é o nome da fábrica do tipo. 2º param (opcional) é o nome a ser atribuído ao elemento retorno.
     g_assert_nonnull (playbin); //Verifica se a chamada anterior funcionou corretamente.
 
     uri = gst_filename_to_uri ("bunny.ogg", NULL); //Constrói a URI.
@@ -74,17 +76,46 @@ static bool texture(){
     g_object_set (G_OBJECT (playbin), "uri", uri, NULL); //Atribui a URI à propriedade uri do elemento playbin.
     g_free (uri); ///Libera a string alocada.
 
-    video_sink = gst_element_factory_make ("appsink", "video_sink");
-    g_assert_nonnull (video_sink); //Verifica se a chamada anterior funcionou corretamente.    
+    app_sink_video = gst_element_factory_make ("appsink", "app_sink_video");
+    g_assert_nonnull (app_sink_video); //Verifica se a chamada anterior funcionou corretamente.    
     // audio_sink = gst_element_factory_make ("appsink", "audio_sink");
     // g_assert_nonnull (audio_sink); //Verifica se a chamada anterior funcionou corretamente.    
 
-    // caps = gst_caps_from_string ("video/x-raw,format=YUV,pixel-aspect-ratio=1/1");
-    // gst_app_sink_set_caps (video_sink, caps);
-    // gst_object_unref (caps);
+
     
-    // g_object_set (G_OBJECT (playbin), "audio-sink", audio_sink, NULL);
-    g_object_set (G_OBJECT (playbin), "video-sink", video_sink, NULL);
+
+
+    GstElement *binVideo = gst_bin_new("binVideo");
+    g_assert_nonnull (binVideo);
+
+    // GstElement *sink = gst_element_factory_make ("fakesink", "sink");
+    // g_assert_nonnull (sink);
+    // gst_bin_add(GST_BIN(binVideo), sink);
+
+    GstElement* caps_filter = gst_element_factory_make ("capsfilter", "caps_filter");
+    g_assert_nonnull (caps_filter);
+    gst_bin_add(GST_BIN(binVideo), caps_filter);
+
+    caps = gst_caps_from_string ("video/x-raw,format=YUV,pixel-aspect-ratio=1/1");
+    g_assert_nonnull (caps);
+    g_object_set(caps_filter, "caps", caps, NULL);
+
+    GstElement* video_convert = gst_element_factory_make ("videoconvert", "video_convert");
+    g_assert_nonnull (video_convert);
+    gst_bin_add(GST_BIN(binVideo), video_convert);  
+    
+    gst_bin_add(GST_BIN(binVideo), app_sink_video);
+
+    gst_element_link_many (caps_filter, video_convert, app_sink_video, NULL); //Conecta os elementos em série.
+
+    GstPad *pad = gst_element_get_static_pad(caps_filter, "sink");
+    gst_element_add_pad(binVideo, gst_ghost_pad_new ("sink", pad));
+
+
+
+
+
+    g_object_set (G_OBJECT (playbin), "video-sink", binVideo, NULL);
 
     ret = gst_element_set_state (playbin, GST_STATE_PLAYING); //Inicia a pipeline da aplicação.
     g_assert (ret != GST_STATE_CHANGE_FAILURE); //Verifica se requisição foi bem sucedida.
@@ -101,7 +132,7 @@ static bool texture(){
     while(playing){
 
         SDL_RenderClear(ren);
-        if (new_buffer((GstAppSink*)video_sink) != GST_FLOW_OK)
+        if (new_buffer((GstAppSink*)app_sink_video) != GST_FLOW_OK)
             playing = false;
         else {
             SDL_RenderCopy(ren, tex, NULL, NULL);
