@@ -55,7 +55,28 @@ new_sample_cb (GstAppSink *appsink, gpointer data)
   gst_video_frame_unmap (&v_frame);
   gst_sample_unref (sample);
 
+  user_events();
+
   return GST_FLOW_OK;
+}
+
+void 
+user_events()
+{
+  SDL_Event e;
+  SDL_PollEvent(&e);
+
+  if (e.type == SDL_QUIT){
+    g_print("Quit");  
+  }
+  
+  if (e.type == SDL_KEYDOWN){
+    g_print("Keydown");  
+  }
+
+  if (e.type == SDL_MOUSEBUTTONDOWN){
+    g_print("Mouse Button Down");
+  }  
 }
 
 void
@@ -138,6 +159,7 @@ create_pipeline (int argc, char **argv)
   gst_object_unref (bus);
   gst_element_set_state (playbin, GST_STATE_NULL);
   gst_object_unref (playbin);
+  gst_object_unref (bin);
 }
 
 int main (int argc, char **argv)
@@ -147,17 +169,31 @@ int main (int argc, char **argv)
 
   SDL_SetHint(SDL_HINT_RENDER_DRIVER,"software");
 
-  g_assert (SDL_CreateWindowAndRenderer
-            (width, height, SDL_WINDOW_SHOWN, &window, &renderer) == 0);
+  if(SDL_CreateWindowAndRenderer
+            (width, height, SDL_WINDOW_SHOWN, &window, &renderer))
+  {
+    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, 
+        "Couldn't create window and renderer: %s", SDL_GetError());
+    return 0;
+  }
 
   texture = SDL_CreateTexture (renderer, SDL_PIXELFORMAT_RGB24,
-                               SDL_TEXTUREACCESS_STATIC, width, height);
-  g_assert_nonnull (texture);
+                               SDL_TEXTUREACCESS_TARGET, width, height);
 
+  if(!texture)
+  {
+    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, 
+        "Couldn't create texture: %s", SDL_GetError());
+    return 0;
+  }
+ 
   create_pipeline (argc, argv);
-
+  
+  SDL_DestroyTexture(texture);
   SDL_DestroyRenderer(renderer);
   SDL_DestroyWindow (window);
+  
   SDL_Quit();
+  
   exit (EXIT_SUCCESS);
 }
