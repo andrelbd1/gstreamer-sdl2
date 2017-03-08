@@ -164,6 +164,12 @@ create_pipeline (int argc, char **argv)
 
 int main (int argc, char **argv)
 {
+  #if SDL_VERSION_ATLEAST(2,0,5)
+    SDL_Log("SDL_VERSION %i.%i.%i is more or equal to 2.0.5.", SDL_MAJOR_VERSION, SDL_MINOR_VERSION, SDL_PATCHLEVEL);
+  #else
+    SDL_Log("SDL_VERSION %i.%i.%i is less than 2.0.5.", SDL_MAJOR_VERSION, SDL_MINOR_VERSION, SDL_PATCHLEVEL);
+  #endif
+
   gst_init (&argc, &argv);
   g_assert (SDL_Init (0) == 0);
 
