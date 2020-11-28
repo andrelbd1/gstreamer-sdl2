@@ -1,2 +1,2 @@
 # gstreamer-sdl2
-Decoding with GStreamer and rendering with SDL
+Sample of application to decode a video using GStreamer and render using SDL2
